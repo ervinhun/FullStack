@@ -1,0 +1,225 @@
+### Class Session: Backend with C# ASP.NET Core
+
+Welcome, class. Today we're going to look at two fundamental examples of how a web server can communicate with clients: `WeatherController` and `ChatController`. These will help us understand the basics of building real-time web applications with ASP.NET Core.
+
+#### The Foundation: What is a Controller?
+
+Think of a **Controller** as the traffic cop of your web application. When a request comes in from a user's browser (a "client"), the controller is responsible for deciding what to do with it and what to send back.
+
+In our code, you see these annotations at the top of each class:
+
+*   `[ApiController]`: This tells ASP.NET, "This class isn't for showing web pages; it's for handling data requests, like from a JavaScript application." It enables helpful features for this kind of work.
+*   `[Route("[controller]")]`: This sets up the URL. `[controller]` is a placeholder that gets replaced by the controller's name (minus "Controller").
+    *   `WeatherController` becomes `/weather`
+    *   `ChatController` becomes `/chat`
+*   `public class WeatherController : ControllerBase`: This means our class is a specific *type* of Controller. It inherits a lot of built-in tools for handling web requests from the `ControllerBase` class provided by ASP.NET.
+
+---
+
+### Part 1: `WeatherController.cs` - The Announcer
+
+The `WeatherController` is our first example. Its job is to continuously send out updates, like a radio announcer broadcasting the weather. It doesn't listen for any messages back; it just talks. This is a one-way communication model called **Server-Sent Events (SSE)**.
+
+Let's look at the `Stream` method:
+
+```csharp
+[HttpGet("stream")]
+public async Task Stream()
+{
+    Response.Headers.ContentType = "text/event-stream";
+    while (true)
+    {
+        await Task.Delay(2000);
+        var weatherUpdate = System.Text.Encoding.UTF8.GetBytes($"it is sunny and {new Random().Next()} degrees at {DateTime.Now.ToLocalTime()}\n\n");
+        await Response.Body.WriteAsync(weatherUpdate);
+        await Response.Body.FlushAsync();
+    }
+}
+```
+
+**How it Works:**
+
+1.  **`[HttpGet("stream")]`**: This annotation says, "If someone makes a GET request to `/weather/stream`, run this method."
+2.  **`Response.Headers.ContentType = "text/event-stream";`**: This is the most important line for SSE. It's like telling the browser, "Don't just expect a single piece of data and then hang up. Keep the line open, because I'm going to be sending you a stream of updates."
+3.  **`while (true)`**: This loop runs forever, which is what keeps the connection to the client alive.
+4.  **`await Task.Delay(2000);`**: The server pauses for 2 seconds. We don't want to flood the client with data.
+5.  **`Response.Body.WriteAsync(...)`**: The server writes a new weather update directly into the open connection.
+6.  **`await Response.Body.FlushAsync();`**: This command immediately sends whatever data is waiting in the buffer to the client. Without it, the server might wait until it has more data before sending, but we want our updates to be real-time.
+
+**In summary:** The `WeatherController` opens a one-way street from server to client, perfect for things like live stock tickers, news feeds, or status updates.
+
+---
+
+### Part 2: `ChatController.cs` - The Conference Call Operator
+
+The `ChatController` is more advanced. It acts like an operator for a conference call. It has to:
+1.  Know who has dialed in (who is listening).
+2.  Accept a message from one person.
+3.  Broadcast that message to everyone else on the call.
+
+This introduces a critical new concept: **shared state**. The server needs to remember all the connected clients.
+
+```csharp
+private static readonly List<System.IO.Stream> Clients = new();
+```
+
+This `Clients` list is the key.
+*   **`static`**: This keyword is crucial. It means this list belongs to the *class*, not to any single request. Every client who connects will be interacting with this *same, single list*. Without `static`, each client would have their own empty list, and they could never talk to each other.
+
+#### The `Stream` Method: Dialing into the Chat
+
+```csharp
+[HttpGet("stream")]
+public async Task Stream()
+{
+    Response.Headers.ContentType = "text/event-stream";
+    Clients.Add(Response.Body); // Add the new client to our list
+    // ... wait until the client disconnects ...
+    finally
+    {
+        Clients.Remove(Response.Body); // Clean up and remove the client
+    }
+}
+```
+
+This is the "dial-in" number. When a client makes a GET request to `/chat/stream`, the server does two things:
+1.  Sets up the same "text/event-stream" to keep the connection open.
+2.  Adds the client's output stream (`Response.Body`) to the shared `Clients` list. Now the server knows how to send messages to this specific client.
+3.  The `finally` block is for good housekeeping. When the client hangs up, we remove them from the list so we don't try to send messages to a dead connection.
+
+#### The `SendMessage` Method: Speaking to the Group
+
+```csharp
+[HttpPost("send")]
+public async Task SendMessage([FromBody] Message message)
+{
+    var messageBytes = Encoding.UTF8.GetBytes($"data: {message.Content}\n\n");
+
+    foreach (var client in Clients)
+    {
+        await client.WriteAsync(messageBytes);
+        await client.FlushAsync();
+    }
+}
+```
+
+This is how a user sends a message.
+1.  **`[HttpPost("send")]`**: This method handles POST requests to `/chat/send`. We use POST here because the client is *sending* data *to* the server to create something (a new chat message).
+2.  **`[FromBody] Message message`**: ASP.NET is smart. It automatically reads the JSON data from the request (e.g., `{"Content": "Hello everyone!"}`) and converts it into a `Message` object for us. The `Message.cs` file simply defines the shape of this data.
+3.  **`foreach (var client in Clients)`**: This is the "broadcast" part. The server loops through its list of every connected client.
+4.  **`await client.WriteAsync(...)`**: It sends the message content to each and every client in the list.
+
+### Conclusion (Backend)
+
+*   `WeatherController` shows us the basics of pushing data from a server to a client (**one-way**).
+*   `ChatController` builds on that by introducing a **shared list** (`static List`) that allows the server to manage multiple clients and broadcast a message received from one client to all the others (**two-way interaction**).
+
+---
+---
+
+### Class Session: The Frontend with React & TypeScript
+
+We've seen how our C# backend works like a conference call operator (`ChatController`). Now, let's look at the other side: the phone itself! Our frontend is built with **React**, a popular library for creating interactive user interfaces.
+
+#### The Foundation: `index.html`
+
+Think of `index.html` as the outer shell of our application. It's a very simple HTML file with one critical piece:
+
+```html
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+```
+
+1.  **`<div id="root"></div>`**: This is the most important part. It's an empty container, like a stage waiting for the actors. React will take control of this `div` and render our entire application inside it.
+2.  **`<script ... src="/src/main.tsx"></script>`**: This line loads and runs our JavaScript code, which kicks off the entire React application.
+
+#### The Ignition: `main.tsx`
+
+This file is the ignition switch for our application. It starts the engine.
+
+```typescript
+import Ex3 from './Ex3.tsx'
+import { createRoot } from 'react-dom/client'
+
+// Find the "stage" from index.html
+const rootElement = document.getElementById('root')!;
+const root = createRoot(rootElement);
+
+// Tell React what to render on the stage
+root.render(
+    <Ex3 />
+);
+```
+
+1.  It finds the `<div id="root">` element from our HTML.
+2.  It then tells React, "Please render our main component, `<Ex3 />`, inside that element."
+
+#### The Main App: `Ex3.tsx` - The Chat Client
+
+This is the heart of our frontend. It's a **React Component**, which is a self-contained piece of UI that manages its own data and logic.
+
+```typescript
+import {useState, useEffect} from 'react'
+
+// 1. Connect to the server's event stream right away
+const es = new EventSource("http://localhost:5208/chat/stream");
+
+export default function Ex3() {
+  // 2. Set up the component's memory
+  const [messages, setMessages] = useState<any[]>([])
+
+  // 3. Listen for messages from the server
+  useEffect(() => {
+    es.onmessage = (event) => {
+      setMessages((prevMessages) => [...prevMessages, event.data])
+    };
+  }, [es.readyState]);
+    
+  // 4. Define the UI
+  return (
+    <>
+      { JSON.stringify(messages) }
+      <button onClick={() => {
+        // 5. Send a message to the server
+        fetch('http://localhost:5208/chat/send', {
+          method: "POST",
+          body: JSON.stringify({content: "hi"}),
+          headers: {
+            "Content-Type": "application/json"
+          }
+        })
+      }}>send</button>
+    </>
+  )
+}
+```
+
+Let's break this down step-by-step:
+
+**1. Connecting to the Server**
+*   `const es = new EventSource("...");`: This is the client-side equivalent of our backend's Server-Sent Events (SSE). The `EventSource` API is built into modern browsers specifically to connect to event streams. This one line connects our app to the `/chat/stream` endpoint and keeps the connection open to listen for messages.
+
+**2. Component Memory (`useState`)**
+*   `const [messages, setMessages] = useState<any[]>([])`: This is how a React component remembers things.
+    *   `messages`: This variable holds our array of chat messages. It starts as an empty array (`[]`).
+    *   `setMessages`: This is the *only* function we can use to update the `messages` array. When we call it, React automatically re-renders the component to show the new data.
+
+**3. Listening for Messages (`useEffect`)**
+*   `useEffect(() => { ... });`: This hook lets our component interact with the "outside world" (like our `EventSource` connection).
+*   `es.onmessage = (event) => { ... }`: We're setting up a listener. This says, "Whenever a message arrives from the server stream, run this function."
+*   `setMessages((prevMessages) => [...prevMessages, event.data])`: This is how we add a new message. We call our "setter" function, `setMessages`. We give it a function that takes the previous list of messages (`prevMessages`), makes a *new* list containing all the old messages (`...prevMessages`) plus the new one (`event.data`), and sets that as the new state.
+
+**4. Displaying the UI (The `return` statement)**
+*   This part is written in **JSX**, which looks like HTML but is actually JavaScript.
+*   `{ JSON.stringify(messages) }`: For this simple example, we aren't creating a fancy UI. We are just converting the `messages` array into a raw string and displaying it on the screen. This is a great way to quickly check that we are receiving data correctly.
+*   `<button onClick={...}>send</button>`: This creates the "send" button.
+
+**5. Sending a Message (`onClick`)**
+*   The `onClick` function uses the browser's `fetch` API to send data *to* the server.
+*   Notice how this `fetch` call is the perfect frontend equivalent of the `curl` command we've been working on! It specifies:
+    *   The URL: `http://localhost:5208/chat/send`
+    *   The method: `POST`
+    *   The headers: `Content-Type: application/json`
+    *   The body: A stringified JSON object with the `content`.
