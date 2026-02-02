@@ -39,15 +39,24 @@ public class RealtimeController(ISseBackplane backplane) : ControllerBase
 
     [HttpPost("poke")]
     [Produces<PokeResponse>]
-    public async Task Poke(string connectionId)
+    public async Task<IActionResult> Poke(string connectionId)
     {
-        await backplane.Clients.SendToClientAsync(connectionId, new PokeResponse("you have been poked", "Ervin", "Anyu", DateTime.UtcNow));
+        await backplane.Clients.SendToClientAsync(connectionId, new PokeResponse(connectionId + " you have been poked", "Ervin", "Anyu", DateTime.UtcNow));
+        return Ok(new PokeResponse($"You poked {connectionId}", "System", connectionId, DateTime.UtcNow));
     }
 
     [HttpPost("leave")]
     public async Task Leave(string roomId, string connectionId)
     {
         await backplane.Groups.RemoveFromGroupAsync(connectionId, roomId);
+    }
+    
+    [HttpPost("dm")]
+    public async Task<IActionResult> SendDm(string from, string to, string message)
+    {
+        await backplane.Clients.SendToClientAsync(to, new DmMessageResponse(from, to, message, false, DateTime.UtcNow));
+        return Ok(new PokeResponse($"You DMd {to}", "System", to, DateTime.UtcNow));
+        
     }
     
     
