@@ -88,7 +88,7 @@ export class RealtimeClient {
         return Promise.resolve<JoinResponse>(null as any);
     }
 
-    send(room: string | undefined, message: string | undefined): Promise<MessageResponse> {
+    send(room: string | undefined, message: string | undefined, from: string | undefined): Promise<MessageResponse> {
         let url_ = this.baseUrl + "/send?";
         if (room === null)
             throw new globalThis.Error("The parameter 'room' cannot be null.");
@@ -98,6 +98,10 @@ export class RealtimeClient {
             throw new globalThis.Error("The parameter 'message' cannot be null.");
         else if (message !== undefined)
             url_ += "message=" + encodeURIComponent("" + message) + "&";
+        if (from === null)
+            throw new globalThis.Error("The parameter 'from' cannot be null.");
+        else if (from !== undefined)
+            url_ += "from=" + encodeURIComponent("" + from) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
@@ -129,12 +133,16 @@ export class RealtimeClient {
         return Promise.resolve<MessageResponse>(null as any);
     }
 
-    poke(connectionId: string | undefined): Promise<PokeResponse> {
+    poke(from: string | undefined, toId: string | undefined): Promise<PokeResponse> {
         let url_ = this.baseUrl + "/poke?";
-        if (connectionId === null)
-            throw new globalThis.Error("The parameter 'connectionId' cannot be null.");
-        else if (connectionId !== undefined)
-            url_ += "connectionId=" + encodeURIComponent("" + connectionId) + "&";
+        if (from === null)
+            throw new globalThis.Error("The parameter 'from' cannot be null.");
+        else if (from !== undefined)
+            url_ += "from=" + encodeURIComponent("" + from) + "&";
+        if (toId === null)
+            throw new globalThis.Error("The parameter 'toId' cannot be null.");
+        else if (toId !== undefined)
+            url_ += "toId=" + encodeURIComponent("" + toId) + "&";
         url_ = url_.replace(/[?&]$/, "");
 
         let options_: RequestInit = {
@@ -204,7 +212,7 @@ export class RealtimeClient {
         return Promise.resolve<void>(null as any);
     }
 
-    sendDm(from: string | undefined, to: string | undefined, message: string | undefined): Promise<FileResponse> {
+    sendDm(from: string | undefined, to: string | undefined, message: string | undefined): Promise<DmMessageResponse> {
         let url_ = this.baseUrl + "/dm?";
         if (from === null)
             throw new globalThis.Error("The parameter 'from' cannot be null.");
@@ -223,7 +231,7 @@ export class RealtimeClient {
         let options_: RequestInit = {
             method: "POST",
             headers: {
-                "Accept": "application/octet-stream"
+                "Accept": "application/json"
             }
         };
 
@@ -232,26 +240,62 @@ export class RealtimeClient {
         });
     }
 
-    protected processSendDm(response: Response): Promise<FileResponse> {
+    protected processSendDm(response: Response): Promise<DmMessageResponse> {
         const status = response.status;
         let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
-        if (status === 200 || status === 206) {
-            const contentDisposition = response.headers ? response.headers.get("content-disposition") : undefined;
-            let fileNameMatch = contentDisposition ? /filename\*=(?:(\\?['"])(.*?)\1|(?:[^\s]+'.*?')?([^;\n]*))/g.exec(contentDisposition) : undefined;
-            let fileName = fileNameMatch && fileNameMatch.length > 1 ? fileNameMatch[3] || fileNameMatch[2] : undefined;
-            if (fileName) {
-                fileName = decodeURIComponent(fileName);
-            } else {
-                fileNameMatch = contentDisposition ? /filename="?([^"]*?)"?(;|$)/g.exec(contentDisposition) : undefined;
-                fileName = fileNameMatch && fileNameMatch.length > 1 ? fileNameMatch[1] : undefined;
-            }
-            return response.blob().then(blob => { return { fileName: fileName, data: blob, status: status, headers: _headers }; });
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as DmMessageResponse;
+            return result200;
+            });
         } else if (status !== 200 && status !== 204) {
             return response.text().then((_responseText) => {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
             });
         }
-        return Promise.resolve<FileResponse>(null as any);
+        return Promise.resolve<DmMessageResponse>(null as any);
+    }
+
+    readDm(from: string | undefined, to: string | undefined): Promise<DmMessageResponse> {
+        let url_ = this.baseUrl + "/readingDm?";
+        if (from === null)
+            throw new globalThis.Error("The parameter 'from' cannot be null.");
+        else if (from !== undefined)
+            url_ += "from=" + encodeURIComponent("" + from) + "&";
+        if (to === null)
+            throw new globalThis.Error("The parameter 'to' cannot be null.");
+        else if (to !== undefined)
+            url_ += "to=" + encodeURIComponent("" + to) + "&";
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: RequestInit = {
+            method: "POST",
+            headers: {
+                "Accept": "application/json"
+            }
+        };
+
+        return this.http.fetch(url_, options_).then((_response: Response) => {
+            return this.processReadDm(_response);
+        });
+    }
+
+    protected processReadDm(response: Response): Promise<DmMessageResponse> {
+        const status = response.status;
+        let _headers: any = {}; if (response.headers && response.headers.forEach) { response.headers.forEach((v: any, k: any) => _headers[k] = v); };
+        if (status === 200) {
+            return response.text().then((_responseText) => {
+            let result200: any = null;
+            result200 = _responseText === "" ? null : JSON.parse(_responseText, this.jsonParseReviver) as DmMessageResponse;
+            return result200;
+            });
+        } else if (status !== 200 && status !== 204) {
+            return response.text().then((_responseText) => {
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+            });
+        }
+        return Promise.resolve<DmMessageResponse>(null as any);
     }
 }
 
@@ -275,17 +319,17 @@ export interface MessageResponse extends BaseResponseDto {
 }
 
 export interface PokeResponse extends BaseResponseDto {
-    message?: string;
     from?: string;
     to?: string;
     timestamp?: string;
 }
 
-export interface FileResponse {
-    data: Blob;
-    status: number;
-    fileName?: string;
-    headers?: { [name: string]: any };
+export interface DmMessageResponse extends BaseResponseDto {
+    from?: string;
+    to?: string;
+    message?: string;
+    read?: boolean;
+    timestamp?: string;
 }
 
 export class ApiException extends Error {

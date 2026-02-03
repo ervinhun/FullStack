@@ -79,6 +79,14 @@
               "type": "string"
             },
             "x-position": 2
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "x-position": 3
           }
         ],
         "responses": {
@@ -103,12 +111,20 @@
         "operationId": "Realtime_Poke",
         "parameters": [
           {
-            "name": "connectionId",
+            "name": "from",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "x-position": 1
+          },
+          {
+            "name": "toId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "x-position": 2
           }
         ],
         "responses": {
@@ -192,10 +208,47 @@
           "200": {
             "description": "",
             "content": {
-              "application/octet-stream": {
+              "application/json": {
                 "schema": {
-                  "type": "string",
-                  "format": "binary"
+                  "$ref": "#/components/schemas/DmMessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readingDm": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "operationId": "Realtime_ReadDm",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "x-position": 1
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "x-position": 2
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DmMessageResponse"
                 }
               }
             }
@@ -278,14 +331,40 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "message": {
-                "type": "string"
-              },
               "from": {
                 "type": "string"
               },
               "to": {
                 "type": "string"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "DmMessageResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BaseResponseDto"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "read": {
+                "type": "boolean"
               },
               "timestamp": {
                 "type": "string",

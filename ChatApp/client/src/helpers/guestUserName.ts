@@ -1,0 +1,1 @@
+export const guestUserName: string = `Guest_${Math.random().toString(36).substring(2, 9)}`;
