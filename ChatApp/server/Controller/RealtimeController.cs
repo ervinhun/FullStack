@@ -5,6 +5,11 @@ using StateleSSE.AspNetCore;
 
 public class RealtimeController(ISseBackplane backplane) : ControllerBase
 {
+    // Note: This is a temporary in-memory store for demonstration purposes.
+    // In a real application, you should use a proper database.
+    private static readonly List<DmMessageResponse> _dmStore = new();
+    private Dictionary<string, DateTime> activeUsers = new();
+
     [HttpGet("connect")]
     public async Task Connect()
     {
@@ -32,17 +37,17 @@ public class RealtimeController(ISseBackplane backplane) : ControllerBase
 
     [HttpPost("send")]
     [Produces<MessageResponse>]
-    public async Task Send(string room, string message)
+    public async Task Send(string room, string message, string from)
     {
-        await backplane.Clients.SendToGroupAsync(room, new MessageResponse(message, room, "Test", DateTime.UtcNow));
+        await backplane.Clients.SendToGroupAsync(room, new MessageResponse(message, room, from, DateTime.UtcNow));
     }
 
     [HttpPost("poke")]
     [Produces<PokeResponse>]
-    public async Task<IActionResult> Poke(string connectionId)
+    public async Task<IActionResult> Poke(string from, string toId)
     {
-        await backplane.Clients.SendToClientAsync(connectionId, new PokeResponse(connectionId + " you have been poked", "Ervin", "Anyu", DateTime.UtcNow));
-        return Ok(new PokeResponse($"You poked {connectionId}", "System", connectionId, DateTime.UtcNow));
+        await backplane.Clients.SendToClientAsync(toId, new PokeResponse(from, toId, DateTime.UtcNow));
+        return Ok(new PokeResponse(from, toId, DateTime.UtcNow));
     }
 
     [HttpPost("leave")]
@@ -52,21 +57,41 @@ public class RealtimeController(ISseBackplane backplane) : ControllerBase
     }
     
     [HttpPost("dm")]
+    [ProducesResponseType(typeof(DmMessageResponse), 200)]
     public async Task<IActionResult> SendDm(string from, string to, string message)
     {
-        await backplane.Clients.SendToClientAsync(to, new DmMessageResponse(from, to, message, false, DateTime.UtcNow));
-        return Ok(new PokeResponse($"You DMd {to}", "System", to, DateTime.UtcNow));
-        
+        var dm = new DmMessageResponse(from, to, message, false, DateTime.UtcNow);
+        _dmStore.Add(dm);
+        await backplane.Clients.SendToClientAsync(to, dm);
+        return Ok(new DmMessageResponse(from, to, $"You DMd {to}", false, DateTime.UtcNow));
     }
-    
-    
-    
+
+    [HttpPost("readingDm")]
+    [ProducesResponseType(typeof(DmMessageResponse), 200)]
+    public async Task<IActionResult> ReadDm(string from, string to)
+    {
+        var messagesToUpdate = _dmStore.Where(dm => dm.From == from && dm.To == to && !dm.Read).ToList();
+
+        foreach (var dm in messagesToUpdate)
+        {
+            var updatedDm = dm with { Read = true };
+            _dmStore.Remove(dm);
+            _dmStore.Add(updatedDm);
+            
+            // Notify both the sender and receiver that the message has been read
+            await backplane.Clients.SendToClientAsync(from, updatedDm);
+            await backplane.Clients.SendToClientAsync(to, updatedDm);
+        }
+
+        return Ok();
+    }
 }
 
-public record PokeResponse(string Message, string From, string To, DateTime Timestamp) : BaseResponseDto;
+public record PokeResponse(string From, string To, DateTime Timestamp) : BaseResponseDto;
 
 public record MessageResponse(string Message, string Room, string From, DateTime Timestamp) : BaseResponseDto;
 public record DmMessageResponse(string From, string To, string Message, bool Read, DateTime Timestamp) : BaseResponseDto;
 
 public record JoinResponse(string Message, string Who, string Room, DateTime Timestamp) : BaseResponseDto;
 public record TypingResponse(string Who, bool isTyping, DateTime Timestamp) : BaseResponseDto;
+public record ActiveUsersResponse(string[] users);
